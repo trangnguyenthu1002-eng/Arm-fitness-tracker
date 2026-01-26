@@ -1,4 +1,5 @@
 # Arm Fitness Tracker
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_svg)](https://your-app-name.streamlit.app) 
 Arm Fitness Coach is a real-time AI-powered application that uses MediaPipe and OpenCV to track and analyze your arm workouts. The app provides live feedback on your form, counts your repetitions, and saves your progress to a local database.
 
 ## Features
@@ -47,7 +48,7 @@ Interactive UI: Built with Streamlit for a clean, easy-to-use dashboard.
 
 #### Steps to run
 1. Clone this repository
-<pre>git clone https://github.com/buivan19/Arm-fitness-tracker.gitcd Arm-fitness-tracker</pre>
+<pre>git clone https://github.com/buivan19/Arm-fitness-tracker.git</pre>
 2. Install dependencies
 <pre>pip install -r requirements.txt</pre>
 3. Run the app
