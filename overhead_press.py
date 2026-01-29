@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import time
-import pygame 
+import pygame
+import gc 
 
 class OverheadPressTracker:
     def __init__(self):
@@ -38,6 +39,10 @@ class OverheadPressTracker:
         )
         
         self.pose = self.mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1,
+            smooth_landmarks=True,
+            enable_segmentation=False,
             min_detection_confidence=0.7,
             min_tracking_confidence=0.7
         )
@@ -61,12 +66,34 @@ class OverheadPressTracker:
         self.reached_up_state = False
         self.feedback = "Ready"
         self.form_status = "good"
-        self.last_sound_time = {}
+        self.last_sound_time = {}        
+        # Performance optimization
+        self.frame_skip_count = 0
+        self.frame_skip_interval = 2
+        self.gc_counter = 0
+        self.gc_interval = 100
+        self.last_processed_frame = None
+    def cleanup(self):
+        """Cleanup resources when tracker is being destroyed"""
+        try:
+            if self.music_playing:
+                self.stop_background_music()
+            
+            if self.pygame_initialized:
+                pygame.mixer.quit()
+                self.pygame_initialized = False
+            
+            if hasattr(self, 'pose'):
+                self.pose.close()
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+
     
     def initialize_audio(self):
         if not self.pygame_initialized:
             try:
-                pygame.mixer.init()
+                pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+                pygame.mixer.set_num_channels(8)
                 self.pygame_initialized = True
             except:
                 print("Warning: Could not initialize pygame mixer")
@@ -159,6 +186,17 @@ class OverheadPressTracker:
             return True, ""
 
     def process_frame(self, frame):
+        # Performance optimizations
+        self.gc_counter += 1
+        if self.gc_counter >= self.gc_interval:
+            gc.collect()
+            self.gc_counter = 0
+        
+        self.frame_skip_count += 1
+        if self.frame_skip_count % self.frame_skip_interval != 0:
+            if self.last_processed_frame:
+                return self.last_processed_frame
+        
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image.flags.writeable = False
         results = self.pose.process(image)
@@ -291,6 +329,8 @@ class OverheadPressTracker:
             cv2.putText(image, form_warning, (10, 150),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
+        # Cache for frame skipping
+        self.last_processed_frame = (image, self.count, feedback)
         return image, self.count, feedback
 
 

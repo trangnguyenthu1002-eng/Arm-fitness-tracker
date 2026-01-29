@@ -3,6 +3,7 @@ import numpy as np
 import mediapipe as mp
 import time
 import pygame
+import gc
 
 class BicepsCurlTracker:
     def __init__(self):
@@ -34,6 +35,10 @@ class BicepsCurlTracker:
         self.mp_drawing = mp.solutions.drawing_utils
 
         self.pose = self.mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1, # Balanced mode
+            smooth_landmarks=True, # Reduce jitter
+            enable_segmentation=False, # Disable unused feature
             min_detection_confidence=0.7,
             min_tracking_confidence=0.7
         )
@@ -49,6 +54,14 @@ class BicepsCurlTracker:
         self.MIN_ANGLE = 30
 
         self.ELBOW_DRIFT = 0.08
+
+        # Performance optimization
+        self.frame_skip_count = 0
+        self.frame_skip_interval = 2  # Process every 2nd frame
+        self.gc_counter = 0
+        self.gc_interval = 100
+        self.last_processed_frame = None
+
         
         self.was_attempting_rep = False
         self.last_retry_state = None
@@ -62,11 +75,27 @@ class BicepsCurlTracker:
         self.was_attempting_rep = False
         self.last_retry_state = None
         self.last_sound_time = {}
+    def cleanup(self):
+        """Cleanup resources when tracker is being destroyed"""
+        try:
+            if self.music_playing:
+                self.stop_background_music()
+            
+            if self.pygame_initialized:
+                pygame.mixer.quit()
+                self.pygame_initialized = False
+            
+            if hasattr(self, 'pose'):
+                self.pose.close()
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+
 
     def initialize_audio(self):
         if not self.pygame_initialized:
             try:
-                pygame.mixer.init()
+                pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+                pygame.mixer.set_num_channels(8)
                 self.pygame_initialized = True
             except:
                 print("Warning: Could not initialize pygame mixer")
@@ -113,7 +142,14 @@ class BicepsCurlTracker:
     def play_event_sound(self, sound, sound_type):
         if not self.sounds_loaded:
             return
-            
+        
+        # Prevent channel buildup
+        if pygame.mixer.get_busy():
+            busy_channels = sum(1 for i in range(pygame.mixer.get_num_channels()) 
+                              if pygame.mixer.Channel(i).get_busy())
+            if busy_channels > 6:
+                pygame.mixer.Channel(0).stop()
+        
         now = time.time()
         
         if sound_type in self.sound_cooldown:
@@ -124,7 +160,11 @@ class BicepsCurlTracker:
         if sound_type not in self.last_sound_time or \
            now - self.last_sound_time[sound_type] > cooldown:
             try:
-                sound.play()
+                channel = pygame.mixer.find_channel()
+                if channel:
+                    channel.play(sound)
+                else:
+                    sound.play()
                 self.last_sound_time[sound_type] = now
                 return True
             except Exception as e:
@@ -158,6 +198,18 @@ class BicepsCurlTracker:
             return True, ""
 
     def process_frame(self, frame):
+        # Garbage collection for performance
+        self.gc_counter += 1
+        if self.gc_counter >= self.gc_interval:
+            gc.collect()
+            self.gc_counter = 0
+        
+        # Frame skipping for better performance
+        self.frame_skip_count += 1
+        if self.frame_skip_count % self.frame_skip_interval != 0:
+            if self.last_processed_frame:
+                return self.last_processed_frame
+        
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image.flags.writeable = False
         results = self.pose.process(image)

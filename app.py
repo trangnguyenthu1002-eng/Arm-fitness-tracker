@@ -38,18 +38,47 @@ if st.sidebar.checkbox("Show Progress"):
 
 # Initialize session state
 if 'tracker' not in st.session_state or st.session_state.get('current_exercise') != exercise_option:
+    # Clean up old tracker if exists
+    if 'tracker' in st.session_state:
+        old_tracker = st.session_state.tracker
+        
+        # Stop any playing music
+        if hasattr(old_tracker, 'stop_background_music'):
+            try:
+                old_tracker.stop_background_music()
+            except:
+                pass
+        
+        # Close MediaPipe pose instance
+        if hasattr(old_tracker, 'pose'):
+            try:
+                old_tracker.pose.close()
+            except:
+                pass
+        
+        # Quit pygame mixer to avoid conflicts
+        if hasattr(old_tracker, 'pygame_initialized') and old_tracker.pygame_initialized:
+            try:
+                import pygame
+                pygame.mixer.quit()
+                time.sleep(0.1)  # Small delay to ensure cleanup
+            except:
+                pass
+    
+    # Create new tracker
     if exercise_option == "Bicep Curl":
         st.session_state.tracker = BicepsCurlTracker()
     elif exercise_option == "Lateral Raise":
         st.session_state.tracker = LateralRaiseTracker()
     else:
         st.session_state.tracker = OverheadPressTracker()
+    
     st.session_state.current_exercise = exercise_option
     st.session_state.music_started = False
     st.session_state.stream_active = False
     st.session_state.workout_completed = False
     st.session_state.show_balloons = False
-    st.session_state.restart_key = 0
+    st.session_state.restart_key = st.session_state.get('restart_key', 0) + 1
 
 tracker = st.session_state.tracker
 
@@ -144,7 +173,14 @@ with col_video:
             rtc_configuration=RTCConfiguration(
                 {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
             ),
-            media_stream_constraints={"video": True, "audio": False},
+            media_stream_constraints={
+                "video": {
+                    "width": {"ideal": 640, "max": 640},
+                    "height": {"ideal": 480, "max": 480},
+                    "frameRate": {"ideal": 15, "max": 20}
+                },
+                "audio": False
+            },
             async_processing=True,
             mode=WebRtcMode.SENDRECV,
         )
