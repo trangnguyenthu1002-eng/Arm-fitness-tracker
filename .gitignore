@@ -1,13 +1,34 @@
-# Python bytecode (the __pycache__ folders)
+# Python
 __pycache__/
-*.pyc
-
-# Local database
-workout_history.db
-
-# VS Code settings (optional but recommended)
-.vscode/
-
-# Virtual environments
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
 venv/
-env/ 
+ENV/
+.venv
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Audio files (nếu quá lớn, có thể bỏ qua)
+# *.mp3
+# *.wav
+
+# Model files (nếu quá lớn)
+# *.task
+
+# Logs
+*.log

@@ -1,58 +1,73 @@
 # Arm Fitness Tracker
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_svg)](https://your-app-name.streamlit.app) 
-Arm Fitness Coach is a real-time AI-powered application that uses MediaPipe and OpenCV to track and analyze your arm workouts. The app provides live feedback on your form, counts your repetitions, and saves your progress to a local database.
+
+AI-powered fitness application that tracks and analyzes arm workouts in real-time using MediaPipe and OpenCV.
 
 ## Features
-Real-time Pose Estimation: Uses MediaPipe to track joints and calculate precise joint angles.
 
-Exercise Detection: Specifically optimized for:
+- **Real-time Pose Estimation**: Uses MediaPipe to track joints and calculate precise joint angles
+- **Exercise Detection**: Optimized for:
+  - **Bicep Curls**: Tracks elbow flexion and ensures full range of motion
+  - **Lateral Raises**: Monitors shoulder height and lateral movement
+- **Intelligent Feedback**: Visual cues showing current state and angles
+- **Progress Tracking**: Real-time rep counting
 
-- Bicep Curls: Tracks elbow flexion and ensures full range of motion.
+## Technology Stack
 
-- Lateral Raises: Monitors shoulder height and lateral movement.
+- Python 3.11+
+- MediaPipe 0.9.3.0 (for pose tracking)
+- Streamlit (web interface)
+- OpenCV (image processing)
+- Streamlit WebRTC (real-time video streaming)
 
-- Overhead Press: Detects vertical movement and grip width.
+## Installation
 
-Intelligent Feedback Mechanism:
+### Local Setup
 
-- Audio prompts for "Perfect" reps, "Bad form," or "Try again".
+1. Clone the repository:
+```bash
+git clone https://github.com/buivan19/Arm-fitness-tracker.git
+cd Arm-fitness-tracker
+```
 
-- Visual cues on screen showing current state (Curling, Up, Lowering) and angles.
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-Progress Tracking: Automatically saves your workout history (exercise name, reps, and timestamp) in a SQLite database.
+3. Run the app:
+```bash
+streamlit run app.py
+```
 
-Interactive UI: Built with Streamlit for a clean, easy-to-use dashboard.
+## Streamlit Cloud Deployment
 
-## Technology used
-- Python: Main programming language.
+1. Push your code to GitHub repository
+2. Go to [Streamlit Cloud](https://share.streamlit.io/)
+3. Click "New app"
+4. Select your repository: `buivan19/Arm-fitness-tracker`
+5. Set:
+   - **Main file path**: `app.py`
+   - **Python version**: 3.11 (recommended)
+6. Click "Deploy"
 
-- MediaPipe: For high-fidelity pose tracking.
+## Requirements
 
-- Streamlit: For the web interface and real-time video streaming.
+- Python 3.11 or 3.12 (not 3.13)
+- Webcam access for real-time tracking
+- Modern web browser with WebRTC support
 
-- OpenCV: For image processing.
+## File Structure
 
-- Pygame: Handles real-time audio feedback.
+- `app.py` - Main Streamlit application
+- `BicepCurl.py` - Bicep curl exercise tracker
+- `LateralRaise.py` - Lateral raise exercise tracker
+- `requirements.txt` - Python dependencies
+- `packages.txt` - System dependencies for Streamlit Cloud
 
-- SQLite: Local data storage for workout history.
+## Notes
 
-## Installation and usage
-### Option 1: View online
-1. Click the 'Open in Streamlit' badge at the top of the page
-2. Grant camera permission from browser
-3. Select exercise and click start
+- Audio files (`.mp3`, `.wav`) are optional and may not work in Streamlit Cloud
+- The app uses MediaPipe 0.9.3.0 which supports the Solutions API
+- For best performance, use Python 3.11 on Streamlit Cloud
 
-### Option 2: Install and run locally
-#### Prerequisites: 
-- Python 3.11.5 
 
-#### Steps to run
-1. Clone this repository
-<pre>git clone https://github.com/buivan19/Arm-fitness-tracker.git</pre>
-2. Install dependencies
-<pre>pip install -r requirements.txt</pre>
-3. Run the app
-<pre>streamlit run app.py</pre>
-
-##Screenshots
-These are the results of the functions of the project.
