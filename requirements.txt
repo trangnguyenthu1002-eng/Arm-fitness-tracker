@@ -1,10 +1,9 @@
-streamlit==1.41.1
-streamlit-webrtc==0.64.5
-mediapipe==0.10.13
+streamlit>=1.41.0
+streamlit-webrtc>=0.64.0
+mediapipe>=0.10.0
 opencv-python-headless
-numpy
-pandas
 av
 aiortc
+numpy<2.0.0
+pandas
 matplotlib
-pillow
