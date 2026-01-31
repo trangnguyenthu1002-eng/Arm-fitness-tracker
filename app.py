@@ -1,270 +1,134 @@
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, RTCConfiguration, WebRtcMode
-import av
 import cv2
+import numpy as np
+import mediapipe as mp
 import time
-from datetime import datetime  
 
-# Import Class
-from BicepCurl import BicepsCurlTracker
-from LateralRaise import LateralRaiseTracker
-from overhead_press import OverheadPressTracker
-from instruction import show_instructions
-
-from database import init_db, save_session, get_history 
-init_db()
-
-st.set_page_config(page_title="Arm Fitness Coach", layout="wide")
-st.title("Arm Fitness Trainer")
-
-exercise_option = st.sidebar.selectbox(
-    "Chọn bài tập:", 
-    ["Bicep Curl", "Lateral Raise", "Overhead Press"]
-)
-
-st.sidebar.markdown("---")
-if st.sidebar.button("View Instructions", use_container_width=True):
-    st.session_state.show_instructions = not st.session_state.get('show_instructions', False)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Workout History")
-if st.sidebar.checkbox("Show Progress"):
-    history = get_history()
-    if history:
-        for exercise, reps, time in history:
-            st.sidebar.write(f"**{exercise}**: {reps} reps ({time[:16]})")
-    else:
-        st.sidebar.write("No sessions recorded yet.")
-
-# Initialize session state
-if 'tracker' not in st.session_state or st.session_state.get('current_exercise') != exercise_option:
-    # Clean up old tracker if exists
-    if 'tracker' in st.session_state:
-        old_tracker = st.session_state.tracker
-        
-        # Stop any playing music
-        if hasattr(old_tracker, 'stop_background_music'):
-            try:
-                old_tracker.stop_background_music()
-            except:
-                pass
-        
-        # Close MediaPipe pose instance
-        if hasattr(old_tracker, 'pose'):
-            try:
-                old_tracker.pose.close()
-            except:
-                pass
-        
-        # Quit pygame mixer to avoid conflicts
-        if hasattr(old_tracker, 'pygame_initialized') and old_tracker.pygame_initialized:
-            try:
-                import pygame
-                pygame.mixer.quit()
-                time.sleep(0.1)  # Small delay to ensure cleanup
-            except:
-                pass
-    
-    # Create new tracker
-    if exercise_option == "Bicep Curl":
-        st.session_state.tracker = BicepsCurlTracker()
-    elif exercise_option == "Lateral Raise":
-        st.session_state.tracker = LateralRaiseTracker()
-    else:
-        st.session_state.tracker = OverheadPressTracker()
-    
-    st.session_state.current_exercise = exercise_option
-    st.session_state.music_started = False
-    st.session_state.stream_active = False
-    st.session_state.workout_completed = False
-    st.session_state.show_balloons = False
-    st.session_state.restart_key = st.session_state.get('restart_key', 0) + 1
-
-tracker = st.session_state.tracker
-
-def stop_workout():
-    if hasattr(tracker, 'stop_background_music'):
-        tracker.stop_background_music()
-    
-    if hasattr(tracker, '_music_started_flag'):
-        tracker._music_started_flag = False
-    if hasattr(tracker, 'music_playing'):
-        tracker.music_playing = False
-    
-    # Store final count before resetting
-    final_count = tracker.count 
-    st.session_state.final_count = final_count
-
-    save_session(st.session_state.current_exercise, final_count) 
-    
-    # Update session state
-    st.session_state.music_started = False
-    st.session_state.stream_active = False
-    st.session_state.workout_completed = True
-    st.session_state.show_balloons = True
-
-# Function to restart workout
-def restart_workout():
-    if exercise_option == "Bicep Curl":
-        st.session_state.tracker = BicepsCurlTracker()
-    elif exercise_option == "Lateral Raise":
-        st.session_state.tracker = LateralRaiseTracker()
-    else:
-        st.session_state.tracker = OverheadPressTracker()
-    
-    tracker = st.session_state.tracker
-    
-    # Reset all state
-    st.session_state.music_started = False
-    st.session_state.stream_active = True
-    st.session_state.workout_completed = False
-    st.session_state.show_balloons = False
-    st.session_state.current_count = 0
-    st.session_state.current_feedback = "Ready!"
-    st.session_state.restart_key += 1
-
-def video_frame_callback(frame):
-    img = frame.to_ndarray(format="bgr24")
-    if not hasattr(tracker, '_music_started_flag'):
-        tracker._music_started_flag = False
-    
-    if not tracker._music_started_flag and st.session_state.get('stream_active', False):
-        if hasattr(tracker, 'start_background_music'):
-            tracker.start_background_music()
-        tracker._music_started_flag = True
-        st.session_state.music_started = True
-    
-    # Process frame
-    result = tracker.process_frame(img)
-    processed_img = result[0]
-    count = result[1]
-    feedback = result[2]
-    
-    st.session_state.current_feedback = feedback
-    st.session_state.current_count = count
-    
-    return av.VideoFrame.from_ndarray(processed_img, format="bgr24")
-
-# Main interface 
-col_video, col_stats = st.columns([3, 1])
-
-with col_video:
-    if st.session_state.get('show_balloons', False):
-        st.balloons()
-        st.session_state.show_balloons = False
-        st.rerun()
-    
-    if st.session_state.get('workout_completed', False):
-        if st.session_state.get('show_balloons', False):
-            st.balloons()
-            st.session_state.show_balloons = False
-        
-        st.success(f"Workout hoàn thành! Tổng số reps: {st.session_state.get('final_count', 0)}")
-        st.info("Nhấn 'Bắt đầu lại' để tập tiếp.")
-        
-        if st.button("Bắt đầu lại", type="primary", key="restart_btn"):
-            restart_workout()
-            st.rerun()
-    
-    elif st.session_state.get('stream_active', False):
-        ctx = webrtc_streamer(
-            key=f"fitness-stream-{exercise_option}-{st.session_state.restart_key}",
-            video_frame_callback=video_frame_callback,
-            rtc_configuration=RTCConfiguration(
-                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-            ),
-            media_stream_constraints={
-                "video": {
-                    "width": {"ideal": 640, "max": 640},
-                    "height": {"ideal": 480, "max": 480},
-                    "frameRate": {"ideal": 15, "max": 20}
-                },
-                "audio": False
-            },
-            async_processing=True,
-            mode=WebRtcMode.SENDRECV,
+class BicepsCurlTracker:
+    def __init__(self):
+        self.mp_pose = mp.solutions.pose
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.pose = self.mp_pose.Pose(
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.7
         )
-        
-        # Monitor stream state
-        if ctx.state.playing:
-            pass
-        else:
-            if st.session_state.get('music_started', False):
-                if hasattr(tracker, 'stop_background_music'):
-                    tracker.stop_background_music()
-                if hasattr(tracker, '_music_started_flag'):
-                    tracker._music_started_flag = False
-                st.session_state.music_started = False
-    
-    else:
-        if st.button("Start", type="primary", use_container_width=True):
-            st.session_state.stream_active = True
-            st.session_state.workout_completed = False
-            st.session_state.music_started = False
-            tracker.reset()
-            st.session_state.current_count = 0
-            st.session_state.current_feedback = "Ready!"
-            st.rerun()
 
-# Show instructions 
-if st.session_state.get('show_instructions', False):
-    with col_video:
-        st.markdown("---") 
-        show_instructions(exercise_option)
-        
-        if st.button("Close Instructions", use_container_width=True, key="close_instructions"):
-            st.session_state.show_instructions = False
-            st.rerun()
-        st.markdown("---")
+        self.count = 0
+        self.state = "down"
+        self.feedback = ""
+        self.last_feedback = ""
+        self.up_time = None
+        self.min_rep_time = 0.4
 
-with col_stats:
-    st.subheader("Assessment")
-    
-    st.markdown("---")
-    
-    if st.session_state.get('workout_completed', False):
-        current_count = st.session_state.get('final_count', 0)
-        st.metric(label="Tổng số Reps", value=current_count, delta="Hoàn thành!")
-        st.info(" Buổi tập đã kết thúc")
-    else:
-        current_count = st.session_state.get('current_count', tracker.count)
-        st.metric(label="Số Reps", value=current_count)
-        
-        # Show feedback
-        f_text = st.session_state.get('current_feedback', "Ready!")
-        st.info(f"Hướng dẫn: {f_text}")
-    
-    if st.session_state.get('stream_active', False) and not st.session_state.get('workout_completed', False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Reset Counter", use_container_width=True, key="reset_counter"):
-                tracker.reset()
-                st.session_state.current_count = 0
-                st.session_state.current_feedback = "Ready!"
-                st.rerun()
-        
-        with col2:
-            if st.session_state.get('music_started', False):
-                if st.button("Stop music?", use_container_width=True, key="pause_music"):
-                    if hasattr(tracker, 'stop_background_music'):
-                        tracker.stop_background_music()
-                    if hasattr(tracker, '_music_started_flag'):
-                        tracker._music_started_flag = False
-                    st.session_state.music_started = False
-                    st.rerun()
+        # Ngưỡng góc (Giống Bicep Curl của bạn)
+        self.FULL_DOWN = 80    
+        self.MID_POINT = 120   
+        self.FULL_UP = 160     
+        self.WRIST_DRIFT = 0.15 
+
+    def calculate_angle(self, a, b, c):
+        a, b, c = np.array(a), np.array(b), np.array(c)
+        radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
+        angle = np.abs(radians * 180.0 / np.pi)
+        if angle > 180: angle = 360 - angle
+        return angle
+
+    def process_frame(self, frame):
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image.flags.writeable = False
+        results = self.pose.process(image)
+        image.flags.writeable = True
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        form_warning = ""
+        angle = 0
+
+        if results.pose_landmarks:
+            landmarks = results.pose_landmarks.landmark
+            l_s = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
+            l_e = [landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
+            l_w = [landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST].x, landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
+            r_s = [landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER].y]
+            r_e = [landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW].y]
+            r_w = [landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST].y]
+
+            angle = (self.calculate_angle(l_s, l_e, l_w) + self.calculate_angle(r_s, r_e, r_w)) / 2
+            current_time = time.time()
+
+            # Kiểm tra form cơ bản
+            if abs(l_w[0] - l_e[0]) > self.WRIST_DRIFT or abs(r_w[0] - r_e[0]) > self.WRIST_DRIFT:
+                form_warning = "Keep wrists over elbows!"
             else:
-                if st.button("Resume music?", use_container_width=True, key="resume_music"):
-                    if hasattr(tracker, 'start_background_music'):
-                        tracker.start_background_music()
-                    if hasattr(tracker, '_music_started_flag'):
-                        tracker._music_started_flag = True
-                    st.session_state.music_started = True
-                    st.rerun()
-        
-        if st.button("End Workout", type="primary", use_container_width=True, key="end_workout"):
-            stop_workout()
-            st.rerun()
+                if self.state == "down" and angle > self.MID_POINT:
+                    self.state = "pressing"
+                    self.feedback = "Pushing..."
+                elif self.state == "pressing":
+                    if angle >= self.FULL_UP:
+                        self.state = "up"
+                        self.up_time = current_time
+                    elif angle < self.FULL_DOWN: self.state = "down"
+                elif self.state == "up" and (current_time - self.up_time) >= self.min_rep_time:
+                    if angle < self.MID_POINT: self.state = "lowering"
+                elif self.state == "lowering" and angle <= self.FULL_DOWN:
+                    self.count += 1
+                    self.state = "down"
+                    self.feedback = f"Rep {self.count}! Good job!"
+
+            self.mp_drawing.draw_landmarks(image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+
+        # Cập nhật last_feedback
+        if self.feedback:
+            self.last_feedback = self.feedback
+        elif form_warning:
+            self.last_feedback = form_warning
+        else:
+            self.last_feedback = "Ready"
+
+        # GIAO DIỆN (Y hệt ảnh mẫu bạn gửi)
+        cv2.putText(image, f'Angle: {int(angle)}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
+        cv2.putText(image, f'Count: {self.count}', (10, 85), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 0), 2)
+        cv2.putText(image, f'State: {self.state}', (10, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 140, 0), 2)
+        if form_warning:
+            cv2.putText(image, form_warning, (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        if self.feedback:
+            cv2.putText(image, self.feedback, (10, 215), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        return image, self.count, self.last_feedback
     
-    elif not st.session_state.get('stream_active', False) and not st.session_state.get('workout_completed', False):
-        st.info("Nhấn 'Bắt đầu tập' để bắt đầu buổi tập mới.")
+    def reset(self):
+        """Reset counter và state"""
+        self.count = 0
+        self.state = "down"
+        self.feedback = ""
+        self.last_feedback = "Reset"
+        self.up_time = None
+
+if __name__ == "__main__":
+    tracker = BicepsCurlTracker()
+    cap = cv2.VideoCapture(0)
+    window_name = "Overhead Press Tracker"
+    
+    # Khởi tạo cửa sổ trước khi vào vòng lặp
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+        
+        frame = cv2.flip(frame, 1)
+        output, _, _ = tracker.process_frame(frame)
+        
+        # Kiểm tra xem cửa sổ có còn tồn tại không trước khi hiển thị
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            break
+            
+        cv2.imshow(window_name, output)
+
+        key = cv2.waitKey(1) & 0xFF
+        # Thoát nếu nhấn 'q' hoặc ESC (mã 27)
+        if key == ord('q') or key == 27:
+            break
+
+    # Đảm bảo camera được tắt và mọi cửa sổ bị xóa hẳn khỏi bộ nhớ
+    cap.release()
+    cv2.destroyAllWindows()
+    print("Program closed successfully.")
