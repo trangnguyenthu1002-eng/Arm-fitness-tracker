@@ -1,134 +1,100 @@
+import streamlit as st
 import cv2
-import numpy as np
 import mediapipe as mp
-import time
+import numpy as np
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+
+# Khởi tạo các giải pháp Mediapipe
+mp_drawing = mp.solutions.drawing_utils
+mp_pose = mp.solutions.pose
 
 class BicepsCurlTracker:
     def __init__(self):
-        self.mp_pose = mp.solutions.pose
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.pose = self.mp_pose.Pose(
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7
+        # Khởi tạo Mediapipe Pose
+        self.pose = mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1,
+            smooth_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
         )
-
         self.count = 0
-        self.state = "down"
-        self.feedback = ""
-        self.last_feedback = ""
-        self.up_time = None
-        self.min_rep_time = 0.4
-
-        # Ngưỡng góc (Giống Bicep Curl của bạn)
-        self.FULL_DOWN = 80    
-        self.MID_POINT = 120   
-        self.FULL_UP = 160     
-        self.WRIST_DRIFT = 0.15 
+        self.stage = None
 
     def calculate_angle(self, a, b, c):
-        a, b, c = np.array(a), np.array(b), np.array(c)
+        a = np.array(a) # Vai
+        b = np.array(b) # Khuỷu tay
+        c = np.array(c) # Cổ tay
+
         radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-        angle = np.abs(radians * 180.0 / np.pi)
-        if angle > 180: angle = 360 - angle
+        angle = np.abs(radians*180.0/np.pi)
+        
+        if angle > 180.0:
+            angle = 360-angle
+            
         return angle
 
-    def process_frame(self, frame):
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image.flags.writeable = False
-        results = self.pose.process(image)
-        image.flags.writeable = True
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-        form_warning = ""
-        angle = 0
+    def process(self, image):
+        # Chuyển màu sang RGB cho Mediapipe
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image_rgb.flags.writeable = False
+        
+        # Nhận diện tư thế
+        results = self.pose.process(image_rgb)
+        
+        # Chuyển lại màu sang BGR để vẽ
+        image_rgb.flags.writeable = True
+        image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
 
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
-            l_s = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
-            l_e = [landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
-            l_w = [landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST].x, landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
-            r_s = [landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER].y]
-            r_e = [landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW].y]
-            r_w = [landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST].x, landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST].y]
-
-            angle = (self.calculate_angle(l_s, l_e, l_w) + self.calculate_angle(r_s, r_e, r_w)) / 2
-            current_time = time.time()
-
-            # Kiểm tra form cơ bản
-            if abs(l_w[0] - l_e[0]) > self.WRIST_DRIFT or abs(r_w[0] - r_e[0]) > self.WRIST_DRIFT:
-                form_warning = "Keep wrists over elbows!"
-            else:
-                if self.state == "down" and angle > self.MID_POINT:
-                    self.state = "pressing"
-                    self.feedback = "Pushing..."
-                elif self.state == "pressing":
-                    if angle >= self.FULL_UP:
-                        self.state = "up"
-                        self.up_time = current_time
-                    elif angle < self.FULL_DOWN: self.state = "down"
-                elif self.state == "up" and (current_time - self.up_time) >= self.min_rep_time:
-                    if angle < self.MID_POINT: self.state = "lowering"
-                elif self.state == "lowering" and angle <= self.FULL_DOWN:
-                    self.count += 1
-                    self.state = "down"
-                    self.feedback = f"Rep {self.count}! Good job!"
-
-            self.mp_drawing.draw_landmarks(image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
-
-        # Cập nhật last_feedback
-        if self.feedback:
-            self.last_feedback = self.feedback
-        elif form_warning:
-            self.last_feedback = form_warning
-        else:
-            self.last_feedback = "Ready"
-
-        # GIAO DIỆN (Y hệt ảnh mẫu bạn gửi)
-        cv2.putText(image, f'Angle: {int(angle)}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
-        cv2.putText(image, f'Count: {self.count}', (10, 85), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 0), 2)
-        cv2.putText(image, f'State: {self.state}', (10, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 140, 0), 2)
-        if form_warning:
-            cv2.putText(image, form_warning, (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        if self.feedback:
-            cv2.putText(image, self.feedback, (10, 215), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-        return image, self.count, self.last_feedback
-    
-    def reset(self):
-        """Reset counter và state"""
-        self.count = 0
-        self.state = "down"
-        self.feedback = ""
-        self.last_feedback = "Reset"
-        self.up_time = None
-
-if __name__ == "__main__":
-    tracker = BicepsCurlTracker()
-    cap = cv2.VideoCapture(0)
-    window_name = "Overhead Press Tracker"
-    
-    # Khởi tạo cửa sổ trước khi vào vòng lặp
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret: break
-        
-        frame = cv2.flip(frame, 1)
-        output, _, _ = tracker.process_frame(frame)
-        
-        # Kiểm tra xem cửa sổ có còn tồn tại không trước khi hiển thị
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-            break
             
-        cv2.imshow(window_name, output)
+            # Lấy tọa độ Vai, Khuỷu tay, Cổ tay (bên trái ví dụ)
+            shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
+                        landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+            elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x,
+                     landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
+            wrist = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x,
+                     landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+            
+            # Tính góc
+            angle = self.calculate_angle(shoulder, elbow, wrist)
+            
+            # Logic đếm Bicep Curl
+            if angle > 160:
+                self.stage = "down"
+            if angle < 30 and self.stage == 'down':
+                self.stage = "up"
+                self.count += 1
+            
+            # Vẽ lên màn hình
+            mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+            
+            # Hiển thị số lần tập
+            cv2.putText(image, f'Count: {self.count}', (50, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(image, f'Stage: {self.stage}', (50, 100), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
-        key = cv2.waitKey(1) & 0xFF
-        # Thoát nếu nhấn 'q' hoặc ESC (mã 27)
-        if key == ord('q') or key == 27:
-            break
+        return image
 
-    # Đảm bảo camera được tắt và mọi cửa sổ bị xóa hẳn khỏi bộ nhớ
-    cap.release()
-    cv2.destroyAllWindows()
-    print("Program closed successfully.")
+class VideoProcessor(VideoTransformerBase):
+    def __init__(self):
+        self.tracker = BicepsCurlTracker()
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        img = self.tracker.process(img)
+        return img
+
+# --- UI STREAMLIT ---
+st.set_page_config(page_title="AI Fitness Tracker", layout="wide")
+st.title("💪 AI Arm Fitness Tracker")
+st.write("Hướng dẫn: Đứng ngang camera để hệ thống nhận diện khuỷu tay tốt nhất.")
+
+webrtc_streamer(
+    key="fitness-tracker",
+    mode=WebRtcMode.SENDRECV,
+    video_transformer_factory=VideoProcessor,
+    async_processing=True,
+)
