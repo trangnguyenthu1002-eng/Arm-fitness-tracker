@@ -1,8 +1,5 @@
-mediapipe==0.10.13
-numpy==2.2.6
-opencv-contrib-python==4.12.0.88
-opencv-python==4.12.0.88
-pygame==2.6.1
-av==16.1.0
-streamlit==1.52.2
-streamlit-webrtc==0.64.5
+streamlit
+streamlit-webrtc
+mediapipe
+opencv-python-headless
+numpy
