@@ -1,4 +1,10 @@
-streamlit==1.28.1
-streamlit-webrtc>=0.47.0
-mediapipe
+streamlit==1.41.1
+streamlit-webrtc==0.64.5
+mediapipe==0.10.13
 opencv-python-headless
+numpy
+pandas
+av
+aiortc
+matplotlib
+pillow
